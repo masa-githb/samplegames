@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Making your first Phaser 3 Game - Part 10</title>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.11.0/dist/phaser.js"></script>
+    <style type="text/css">
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+.button {
+    position: absolute;
+    background-color: rgba(255, 255, 255, 0.8);
+    border: 1px solid #000;
+    border-radius: 5px;
+    padding: 10px;
+    cursor: pointer;
+    user-select: none; /* テキスト選択を無効にする */
+    -webkit-user-select: none; /* Safari向けのプロパティ */
+}
+
+.button img {
+    width: 20px; /* 適切なサイズに調整 */
+    height: auto; /* 縦横比を保持 */
+}
+        #left {
+            left: 20px;
+            bottom: 20px;
+        }
+        #right {
+            left: 100px;
+            bottom: 20px;
+        }
+        #jump {
+            left: 180px;
+            bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="left" class="button"><img src="assets/left-arrow.png" alt="←"></div>
+<div id="right" class="button"><img src="assets/right-arrow.png" alt="→"></div>
+<div id="jump" class="button"><img src="assets/jump-arrow.png" alt="↑"></div>
+
+<script type="text/javascript">
+
+var config = {
+    type: Phaser.AUTO,
+    width: 812,
+    height: 375,
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 300 },
+            debug: false
+        }
+    },
+    scene: {
+        preload: preload,
+        create: create,
+        update: update
+    }
+};
+
+var player;
+var stars;
+var bombs;
+var platforms;
+var cursors;
+var score = 0;
+var gameOver = false;
+var scoreText;
+var gameOverText;
+var leftPressed = false;
+var rightPressed = false;
+
+var game = new Phaser.Game(config);
+
+function preload() {
+    this.load.image('sky', 'assets/sky.png');
+    this.load.image('ground', 'assets/platform.png');
+    this.load.image('star', 'assets/star.png');
+    this.load.image('bomb', 'assets/bomb.png');
+    this.load.spritesheet('dude', 'assets/dude.png', { frameWidth: 32, frameHeight: 48 });
+}
+
+function create() {
+    this.add.image(406, 187.5, 'sky');
+
+    platforms = this.physics.add.staticGroup();
+    platforms.create(406, 350, 'ground').setScale(2).refreshBody();
+    platforms.create(600, 200, 'ground');
+    platforms.create(50, 100, 'ground');
+    platforms.create(750, 150, 'ground');
+
+    player = this.physics.add.sprite(100, 250, 'dude');
+    player.setBounce(0.2);
+    player.setCollideWorldBounds(true);
+    player.setSize(32, 48);
+
+    this.anims.create({
+        key: 'left',
+        frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 3 }),
+        frameRate: 10,
+        repeat: -1
+    });
+
+    this.anims.create({
+        key: 'turn',
+        frames: [{ key: 'dude', frame: 4 }],
+        frameRate: 20
+    });
+
+    this.anims.create({
+        key: 'right',
+        frames: this.anims.generateFrameNumbers('dude', { start: 5, end: 8 }),
+        frameRate: 10,
+        repeat: -1
+    });
+
+    stars = this.physics.add.group({
+        key: 'star',
+        repeat: 11,
+        setXY: { x: 12, y: 0, stepX: 70 }
+    });
+
+    stars.children.iterate(function (child) {
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+    });
+
+    bombs = this.physics.add.group();
+    scoreText = this.add.text(16, 16, 'score: 0', { fontSize: '32px', fill: '#000' });
+    this.physics.add.collider(player, platforms);
+    this.physics.add.collider(stars, platforms);
+    this.physics.add.collider(bombs, platforms);
+    this.physics.add.overlap(player, stars, collectStar, null, this);
+    this.physics.add.collider(player, bombs, hitBomb, null, this);
+
+    gameOverText = this.add.text(406, 187.5, 'GAME OVER', { fontSize: '64px', fill: '#ff0000' });
+    gameOverText.setOrigin(0.5);
+    gameOverText.setVisible(false);
+
+    cursors = this.input.keyboard.createCursorKeys();
+
+    // タッチボタンのイベントを設定
+document.getElementById('left').addEventListener('touchstart', (e) => { 
+    e.preventDefault(); // デフォルトの挙動を防ぐ
+    leftPressed = true; 
+});
+document.getElementById('right').addEventListener('touchstart', (e) => { 
+    e.preventDefault(); // デフォルトの挙動を防ぐ
+    rightPressed = true; 
+});
+    document.getElementById('jump').addEventListener('touchstart', () => jumpPlayer());
+    
+    document.getElementById('left').addEventListener('touchend', () => { 
+        leftPressed = false; 
+        if (!rightPressed) stopPlayer(); 
+    });
+    document.getElementById('right').addEventListener('touchend', () => { 
+        rightPressed = false; 
+        if (!leftPressed) stopPlayer(); 
+    });
+
+    // Prevent default touch behavior to avoid scrolling
+    document.getElementById('left').addEventListener('touchmove', (e) => e.preventDefault());
+    document.getElementById('right').addEventListener('touchmove', (e) => e.preventDefault());
+}
+
+function update() {
+    if (gameOver) {
+        return;
+    }
+
+    // キーボードの入力を処理
+    if (cursors.left.isDown) {
+        movePlayer(-160, 'left');
+    } else if (cursors.right.isDown) {
+        movePlayer(160, 'right');
+    } else {
+        stopPlayer();
+    }
+
+    // プレイヤーの動きと向きを処理
+    if (leftPressed) {
+        movePlayer(-160, 'left');
+    } else if (rightPressed) {
+        movePlayer(160, 'right');
+    } else {
+        stopPlayer();
+    }
+
+    // 上矢印キーの処理
+    if (cursors.up.isDown && player.body.touching.down) {
+        jumpPlayer();
+    }
+}
+
+function movePlayer(velocity, direction) {
+    player.setVelocityX(velocity);
+    
+    // プレイヤーの向きを設定
+    if (direction === 'right') {
+        player.setFlipX(false); // 右を向く
+    } else if (direction === 'left') {
+        player.setFlipX(true); // 左を向く
+    }
+
+    // アニメーションを再生
+    player.anims.play(direction, true);
+}
+
+function stopPlayer() {
+    player.setVelocityX(0);
+    player.anims.play('turn');
+}
+
+function jumpPlayer() {
+    if (player.body.touching.down && player.body.touching.down) {
+        player.setVelocityY(-330); 
+    }
+}
+
+function collectStar(player, star) {
+    star.disableBody(true, true);
+    score += 10;
+    scoreText.setText('Score: ' + score);
+
+    if (stars.countActive(true) === 0) {
+        stars.children.iterate(function (child) {
+            child.enableBody(true, child.x, 0, true, true);
+        });
+
+        var x = (player.x < 406) ? Phaser.Math.Between(406, 812) : Phaser.Math.Between(0, 406);
+        var bomb = bombs.create(x, 16, 'bomb');
+        bomb.setBounce(1);
+        bomb.setCollideWorldBounds(true);
+        bomb.setVelocity(Phaser.Math.Between(-200, 200), 20);
+        bomb.allowGravity = false;
+    }
+}
+
+function hitBomb(player, bomb) {
+    this.physics.pause();
+    player.setTint(0xff0000);
+    player.anims.play('turn');
+    gameOver = true;
+    gameOverText.setVisible(true);
+}
+
+</script>
+
+</body>
+</html>
